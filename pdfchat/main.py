@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 from langchain.callbacks import get_openai_callback
@@ -11,9 +12,9 @@ from langchain.chains import ConversationalRetrievalChain
 from htmlTemplates import  css,bot_template,user_template
 from langchain.llms import HuggingFaceHub
 
-headers = {
-    "authorization": st.secerts['OPENAI_API_KEY'],
-}
+# load the ley
+openai_api_key = os.getenv("OPENAI_API_KEY")
+load_dotenv()
 
 # PDF into a string variable
 def get_pdf_text(pdf_docs):
@@ -37,7 +38,7 @@ def get_text_chunks(text):
 
 # Chunks -> OPENAI(embedding) -> vectorstore
 def get_vectorstore(text_chuncks):
-    embeddings = OpenAIEmbeddings()
+    embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
     # local embeddings
     # embeddings = HuggingFaceInstructEmbeddings(model_name="hkunlp/instructor-xl") 
     vectorstore = FAISS.from_texts(texts=text_chuncks, embedding=embeddings)
@@ -45,7 +46,7 @@ def get_vectorstore(text_chuncks):
 
 # Select llm, create converstaional memory
 def get_conversation_chain(vectorstore):
-    llm = ChatOpenAI()
+    llm = ChatOpenAI(openai_api_key=openai_api_key)
     # llm = HuggingFaceHub(repo_id="google/flan-t5-xxl", model_kwargs={"temperature":0.5, "max_length":512})
 
     memory = ConversationBufferMemory(
@@ -72,42 +73,41 @@ def handle_userinput(user_question):
                 "{{MSG}}", message.content), unsafe_allow_html=True)
 
 
-def main():
-    load_dotenv()
-    st.set_page_config(page_title="Chat with PDFs", page_icon=":books:")
-    st.write(css, unsafe_allow_html=True)
+
+# get the key
+
+st.set_page_config(page_title="Chat with PDFs", page_icon=":books:")
+st.write(css, unsafe_allow_html=True)
+
+# intialize session_state
+if "conversation" not in st.session_state:
+    st.session_state.conversation = None
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = None
+
+st.header("Chat with PDFs :books:")
+
+# create chat interface
+user_question = st.chat_input('Ask a question')
+if user_question:
+    handle_userinput(user_question)
+
+# Where PDFs are uploaded
+with st.sidebar:
+    st.subheader("Your Documents")
+    pdf_docs = st.file_uploader(
+        "Upload PDFs here and click Analyze", accept_multiple_files=True)
     
-    # intialize session_state
-    if "conversation" not in st.session_state:
-        st.session_state.conversation = None
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = None
-    
-    st.header("Chat with PDFs :books:")
+    if st.button("Process"):
+        with st.spinner('Processing'):
+            # create the pdf text
+            raw_text = get_pdf_text(pdf_docs)
+            # create the text chunks
+            text_chunks = get_text_chunks(raw_text)
+            # create vector store
+            vectorstore = get_vectorstore(text_chunks)
+            # create conversation object
+            st.session_state.conversation = get_conversation_chain(vectorstore)
 
-    # create chat interface
-    user_question = st.chat_input('Ask a question')
-    if user_question:
-        handle_userinput(user_question)
+            
 
-    # Where PDFs are uploaded
-    with st.sidebar:
-        st.subheader("Your Documents")
-        pdf_docs = st.file_uploader(
-            "Upload PDFs here and click Analyze", accept_multiple_files=True)
-        
-        if st.button("Process"):
-            with st.spinner('Processing'):
-                # create the pdf text
-                raw_text = get_pdf_text(pdf_docs)
-                # create the text chunks
-                text_chunks = get_text_chunks(raw_text)
-                # create vector store
-                vectorstore = get_vectorstore(text_chunks)
-                # create conversation object
-                st.session_state.conversation = get_conversation_chain(vectorstore)
-
-               
-
-if __name__ == '__main__':
-    main()
